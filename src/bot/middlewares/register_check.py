@@ -1,0 +1,45 @@
+#  Copyright (c) 2022.
+
+from typing import Callable, Dict, Any, Awaitable, Union
+
+from aiogram import BaseMiddleware
+from aiogram.types import Message, CallbackQuery
+
+from src.db.models.user import create_user, is_user_exists, get_user
+
+
+class RegisterCheck(BaseMiddleware):
+    """
+    Middleware будет вызываться каждый раз, когда пользователь будет отправлять боту сообщения (или нажимать
+    на кнопку в инлайн-клавиатуре).
+    """
+
+    def __init__(self):
+        """
+        Не нужен в нашем случае
+        """
+        pass
+
+    async def __call__(
+            self,
+            handler: Callable[[Message, Dict[str, Any]], Awaitable[Any]],
+            event: Union[Message, CallbackQuery],
+            data: Dict[str, Any],
+    ) -> Any:
+        """ Сама функция для обработки вызова """
+        if event.web_app_data:
+            return await handler(event, data)
+
+        session_maker = data['session_maker']
+        redis = data['redis']
+        user = event.from_user
+
+        if not await is_user_exists(user_id=user.id, session_maker=session_maker, redis=redis):
+            await create_user(user_id=event.from_user.id,
+                              username=event.from_user.username,
+                              session_maker=session_maker, locale=user.language_code)
+
+            await data['bot'].send_message(event.from_user.id, 'Ты успешно зарегистрирован!')
+        user = await get_user(user_id=user.id, session_maker=session_maker)
+
+        return await handler(event, data)
